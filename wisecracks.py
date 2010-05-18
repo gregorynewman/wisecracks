@@ -18,20 +18,10 @@ def open_comments_db():
     return sqlite_connection
 
 
-def test_func():
-    cdb_conn = open_comments_db()
-
-    for a in cdb_conn.execute('select * from comments where address=13264785 order by timestamp desc limit 1'):
-        print a
-
-    cdb_conn.close()
-    return
-
 def save_function_info():
     cdb_conn = open_comments_db()
     
-    function_ea = GetEventEa()
-    function_ea = GetFunctionAttr(function_ea, FUNCATTR_START)
+    function_ea = GetFunctionAttr(GetEventEa(), FUNCATTR_START)
     
     function_comments = gather_function_comments(function_ea)
     function_frame_members = gather_frame_members(function_ea)
@@ -40,7 +30,6 @@ def save_function_info():
         query = 'select comment from comments where address=%d AND is_repeatable=%d order by timestamp desc limit 1' % (comment['address'],comment['is_repeatable'])
         last_comment_text = cdb_conn.execute(query).fetchone()
         if last_comment_text != None:
-            print last_comment_text
             last_comment_text = last_comment_text[0].encode('ascii')
         if comment['comment_text'] != last_comment_text:
             query = 'insert into comments values (%d,"%s",%d,datetime("now"))' % (comment['address'], comment['comment_text'], comment['is_repeatable'])
@@ -63,11 +52,58 @@ def save_function_info():
 
     cdb_conn.close()
 
+def restore_function_info():
+    cdb_conn = open_comments_db()
 
+    function_ea = GetFunctionAttr(GetEventEa(), FUNCATTR_START)
+    function_frame = GetFrame(function_ea)
+    member_offsets = get_member_offsets(function_ea)
+
+    for offset in member_offsets:
+        query = 'select member_name from locals where address=%d AND member_offset=%d order by timestamp desc limit 1' % (function_ea, offset)
+        member_name = cdb_conn.execute(query).fetchone()
+        if member_name != None:
+            member_name = member_name[0].encode('ascii')
+            SetMemberName(function_frame, offset, member_name)
+
+    function_end = GetFunctionAttr(function_ea, FUNCATTR_END)
+    function_iterator = function_ea
+
+    while function_iterator != BADADDR:
+        query = 'select comment from comments where address=%d and is_repeatable=0 order by timestamp desc limit 1' % (function_iterator)
+        comment_text = cdb_conn.execute(query).fetchone()
+        if comment_text != None:
+            comment_text = comment_text[0].encode('ascii')
+            MakeComm(function_iterator, comment_text)
+
+        query = 'select comment from comments where address=%d and is_repeatable=1 order by timestamp desc limit 1' % (function_iterator)
+        comment_text = cdb_conn.execute(query).fetchone()
+        if comment_text != None:
+            comment_text = comment_text[0].encode('ascii')
+            MakeRptCmt(function_iterator, comment_text)
+
+        function_iterator = NextHead(function_iterator, function_end)
+
+
+    
+
+    return
+
+def get_member_offsets(ea):
+    offsets_list = []
+    function_frame = GetFrame(ea)
+    first_member = GetFirstMember(function_frame)
+    last_member = GetLastMember(function_frame)
+    member_iterator = first_member
+
+    while member_iterator <= last_member:
+        offsets_list.append(member_iterator)
+        member_iterator += GetMemberSize(function_frame,member_iterator)
+
+    return offsets_list
 
 def gather_function_comments(ea):
     comments_list = []
-#   current_ea = GetEventEa()
     function_start = GetFunctionAttr(ea, FUNCATTR_START)
     function_end = GetFunctionAttr(ea, FUNCATTR_END)
     function_iterator = function_start
@@ -84,51 +120,8 @@ def gather_function_comments(ea):
 
 def gather_frame_members(ea):
     members_list = []
-    function_frame = GetFrame(ea)
-    first_member = GetFirstMember(function_frame)
-    last_member = GetLastMember(function_frame)
-    member_iterator = first_member
-    while member_iterator <= last_member:
-        print "Name: " + GetMemberName(function_frame, member_iterator)
-        members_list.append({"member_offset":member_iterator, "member_name":GetMemberName(function_frame,member_iterator)})
-        member_iterator = member_iterator+GetMemberSize(function_frame,member_iterator)
+    offsets_list = get_member_offsets(ea)
+    for offset in offsets_list:
+        members_list.append({"member_offset":offset, "member_name":GetMemberName(function_frame,offset)})
 
     return members_list
-
-
-def save_function_comments():
-    cdb_conn = open_comments_db()
-    current_ea = GetEventEa()
-    function_start = GetFunctionAttr(current_ea, FUNCATTR_START)
-    function_end = GetFunctionAttr(current_ea, FUNCATTR_END)
-    function_iterator = function_start
-
-    while function_iterator != BADADDR:
-        if GetCommentEx(function_iterator,False):
-            comment_string = GetCommentEx(function_iterator,False)
-            print "Saving %X - %s" % (function_iterator,comment_string)
-            cdb_conn.execute('insert into comments values (%d,"%s")' % (function_iterator,comment_string))
-        function_iterator = NextHead(function_iterator, function_end)
-
-    cdb_conn.commit()
-    cdb_conn.close()
-
-def restore_function_comments():
-    cdb_conn = open_comments_db()
-    current_ea = GetEventEa()
-    function_start = GetFunctionAttr(current_ea, FUNCATTR_START)
-    function_end = GetFunctionAttr(current_ea, FUNCATTR_END)
-    function_iterator = function_start
-
-    comments = cdb_conn.execute('select * from comments where (address >= %d AND address <= %d)' % (function_start,function_end))
-    for comment in comments:
-        MakeComm(comment[0],comment[1].encode('ascii'))
-
-    cdb_conn.close()
-    return
-
-
-
-#save_function_comments()
-
-#restore_function_comments()                       
