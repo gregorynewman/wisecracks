@@ -102,6 +102,7 @@ def get_member_offsets(ea):
 
     return offsets_list
 
+
 def gather_function_comments(ea):
     comments_list = []
     function_start = GetFunctionAttr(ea, FUNCATTR_START)
@@ -121,6 +122,7 @@ def gather_function_comments(ea):
 def gather_frame_members(ea):
     members_list = []
     offsets_list = get_member_offsets(ea)
+    function_frame = GetFrame(ea)
     for offset in offsets_list:
         members_list.append({"member_offset":offset, "member_name":GetMemberName(function_frame,offset)})
 
